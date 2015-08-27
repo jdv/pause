@@ -1609,7 +1609,15 @@ filename[%s]. </p>
                 subdirectory levels is allowed, they all will be
                 created on the fly if they don't exist yet. Only sane
                 directory names are allowed and the number of
-                characters for the whole path is limited.</p>};
+                characters for the whole path is limited.</p><p>
+                <b>NOTE</b>:  If you upload a Perl6 distribution and also
+                specify a target directory that begins with "Perl6"
+                it will likely not do what you had intended.  This is
+                because pause itself inserts a target directory of  "Perl6"
+                for all Perl6 dists in order to differentiate Perl5 and Perl6
+                dists.  The existence of a META6.json file is what pause
+                uses to detect a Perl6 dist.
+                </p>};
 
 
     push @m, qq{<div align="center">};
@@ -1721,6 +1729,22 @@ into $her directory. The request used the following parameters:});
   @m;
 }
 
+sub is_perl6_tarball {
+  my ($self, $path) = @_;
+
+  my $is_perl6 = 0;
+
+  if (open my $fh, "-|", tar => "tf", $path) {
+    while (<$fh>) {
+      if (m,^[^/]+/META6.json$,) {
+        $is_perl6 = 1;
+        last;
+      }
+    }
+  }
+  return $is_perl6
+}
+
 sub add_uri_continue_with_uri {
   my($self,$mgr,$uri,$success,$didit) = @_;
   my $req = $mgr->{CGI};
@@ -1770,7 +1794,10 @@ href="mailto:},
         $subdir = $req->param("pause99_add_uri_subdirscrl");
       }
 
-      my $uriid = "$userhome/$filename";
+      my $is_perl6 = $self->is_perl6_tarball(
+        "$PAUSE::Config->{INCOMING_LOC}/$uri");
+
+      my $uriid = join('/', $userhome, ($is_perl6 ? 'Perl6' : ()), $filename);
 
       if (defined $subdir && length $subdir) {
         # disallowing . to make /./ and /../ handling easier
@@ -1780,7 +1807,8 @@ href="mailto:},
         $subdir =~ s|/+|/|g;
       }
       if (defined $subdir && length $subdir) {
-        $uriid = "$userhome/$subdir/$filename";
+        $uriid = join('/', $userhome, ($is_perl6 ? 'Perl6' : ()), $subdir,
+          $filename);
       }
 
       if ( length $uriid > 255 ) {
@@ -1801,10 +1829,11 @@ href="mailto:},
                             (uriid,     userid,
                              basename,
                              uri,
-		             changedby, changed)
-                     VALUES (?, ?, ?, ?, ?, ?)};
+		             changedby, changed, is_perl6)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)};
       my @query_params = (
-	$uriid, $u->{userid}, $filename, $uri, $mgr->{User}{userid}, $now
+	$uriid, $u->{userid}, $filename, $uri, $mgr->{User}{userid}, $now,
+    $is_perl6
       );
       #display query
       my $cp = $mgr->escapeHTML("$query/(@query_params)");
